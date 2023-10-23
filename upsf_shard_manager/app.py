@@ -1,9 +1,9 @@
+#!/usr/bin/env python3
+
 # BSD 3-Clause License
 #
 # Copyright (c) 2023, BISDN GmbH
 # All rights reserved.
-
-#!/usr/bin/env python3
 
 """shard manager module"""
 
@@ -15,7 +15,6 @@
 
 import os
 import sys
-import enum
 import time
 import hashlib
 import logging
@@ -32,20 +31,12 @@ from upsf_client.upsf import (
     UPSF,
     UpsfError,
 )
+from upsf_client.derived_state import (
+    DerivedState,
+)
 from upsf_client.endpoint import (
     Endpoint,
 )
-
-
-class DerivedState(enum.Enum):
-    """DerivedState"""
-
-    UNKNOWN = 0
-    INACTIVE = 1
-    ACTIVE = 2
-    UPDATING = 3
-    DELETING = 4
-    DELETED = 5
 
 
 def str2bool(value):
@@ -196,6 +187,16 @@ class ShardManager(threading.Thread):
 
                 # reset all shards, i.e. remove network connections
                 for shard in shards:
+                    self.log.warning(
+                        {
+                            "entity": str(self),
+                            "event": "map_shards: no user planes available, reset all shards",
+                            "shard": shard.name,
+                            "desired_up": shard.spec.desired_state.service_gateway_user_plane,
+                            "traceback": traceback.format_stack(),
+                        }
+                    )
+
                     if shard.spec.desired_state.service_gateway_user_plane in (
                         "",
                         None,
@@ -207,6 +208,7 @@ class ShardManager(threading.Thread):
                         "name": shard.name,
                         "prefix": list(shard.spec.prefix),
                         "list_merge_strategy": "replace",
+                        "desired_service_gateway_user_plane": "",
                     }
                     self._upsf.update_shard(**params)
 
@@ -260,7 +262,7 @@ class ShardManager(threading.Thread):
                                     }
                                 )
                                 return
-                            self.log.info(
+                            self.log.debug(
                                 {
                                     "entity": str(self),
                                     "event": "map_shards: shard has static mapping",
@@ -296,7 +298,7 @@ class ShardManager(threading.Thread):
                             # get least loaded sgup
                             up_name = min(sgup_load, key=sgup_load.get)
 
-                            self.log.info(
+                            self.log.debug(
                                 {
                                     "entity": str(self),
                                     "event": "map_shards: selected new user plane",
@@ -545,10 +547,11 @@ class ShardManager(threading.Thread):
                 "serviceGatewayUserPlane",
             ):
                 if param not in entry:
-                    self.log.warning(
+                    self.log.debug(
                         {
                             "entity": str(self),
-                            "event": "get_static_shard_to_sgup_mapping: parameter not found, ignoring entry",
+                            "event": "get_static_shard_to_sgup_mapping: "
+                            "parameter not found, ignoring entry",
                             "param": param,
                             "entry": entry,
                         }
@@ -564,7 +567,7 @@ class ShardManager(threading.Thread):
     def upsf_register_task(**kwargs):
         """periodic background task"""
         while True:
-            with contextlib.suppress(RuntimeError):
+            with contextlib.suppress(Exception):
                 # sleep for specified time interval, default: 60s
                 time.sleep(int(kwargs.get("interval", 60)))
 
@@ -598,6 +601,9 @@ class ShardManager(threading.Thread):
         config = {}
         with pathlib.Path(self.config_file).open(encoding="ascii") as file:
             config = yaml.load(file, Loader=yaml.SafeLoader)
+
+        if config is None:
+            return
 
         sgup_names = []
 
@@ -696,7 +702,7 @@ class ShardManager(threading.Thread):
                 self.log.info(
                     {
                         "entity": str(self),
-                        "event": "add entry",
+                        "event": "add entry to UPSF",
                         "entry": entry,
                         "params": params,
                     }
@@ -745,21 +751,41 @@ class ShardManager(threading.Thread):
                         )
 
                         with contextlib.suppress(Exception):
+                            # initial derived state
+                            derived_state = DerivedState.UNKNOWN.value
+
                             # service gateway user planes
                             if item.service_gateway_user_plane.name not in ("",):
+                                derived_state = (
+                                    item.service_gateway_user_plane.metadata.derived_state
+                                )
                                 self.map_shards()
 
                             # traffic steering functions
                             elif item.traffic_steering_function.name not in ("",):
+                                derived_state = (
+                                    item.traffic_steering_function.metadata.derived_state
+                                )
                                 self.map_shards()
 
                             # network connections
                             elif item.network_connection.name not in ("",):
+                                derived_state = (
+                                    item.network_connection.metadata.derived_state
+                                )
                                 self.map_shards()
 
                             # shard
                             elif item.shard.name not in ("",):
+                                derived_state = item.shard.metadata.derived_state
                                 self.map_shards()
+
+                            # check policy file for any required changes
+                            if derived_state in (
+                                DerivedState.DELETING.value,
+                                DerivedState.DELETED.value,
+                            ):
+                                self.create_default_items()
 
                         if self._stop_thread.is_set():
                             break
@@ -832,7 +858,8 @@ def parse_arguments(defaults, loglevels):
     parser.add_argument(
         "--upsf-auto-register",
         "-a",
-        help=f'enable registration of pre-defined shards (default: {defaults["upsf_auto_register"]})',
+        help="enable registration of pre-defined shards "
+        f'(default: {defaults["upsf_auto_register"]})',
         dest="upsf_auto_register",
         action="store",
         default=defaults["upsf_auto_register"],
