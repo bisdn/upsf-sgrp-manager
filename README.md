@@ -1,22 +1,22 @@
-# upsf-shard-manager
+# upsf-sgrp-manager
 
-This repository contains a Python based application named **shard
-manager** for mapping shards to service gateway user planes within
-a BBF WT-474 compliant User Plane Selection Function (UPSF).
+This repository contains a Python based application named **subscriber
+group manager** for mapping subscribers groups to service gateway user 
+planes within a BBF WT-474 compliant User Plane Selection Function (UPSF).
 
 Its main purpose is to subscribe and listen on events emitted by the
-UPSF via its gRPC streaming interface, and maps unassigned shards
+UPSF via its gRPC streaming interface, and maps unassigned subscriber groups
 to one of the available service gateway user planes based on current load
 and capacity.
 
-In addition, shard manager may be used for creating subscriber
+In addition, subscriber group manager may be used for creating subscriber
 group entities within the UPSF for testing purposes. It runs a
 periodic background task that reads pre-defined subscriber groups
 from an associated policy file and if missing in the UPSF, creates
 those instances.
 
 See next table for a list of command line options supported by
-shard manager. An associated environment variable exists for each
+sgrp manager. An associated environment variable exists for each
 command line option: the CLI option takes precedence, though.
 
 | Option                  | Default value        | Environment variable  | Description                                                                 |
@@ -40,7 +40,7 @@ For safe testing create and enter a virtual environment, build and install the
 application, e.g.:
 
 ```bash
-sh# cd upsf-shard-manager
+sh# cd upsf-sgrp-manager
 sh# python3 -m venv venv
 sh# source venv/bin/activate
 sh# pip install -r ./requirements.txt
@@ -52,38 +52,38 @@ sh# cd upsf-client
 sh# pip install -r ./requirements.txt
 sh# python3 setup.py build && python3 setup.py install
 
-sh# upsf-shard-manager -h
+sh# upsf-sgrp-manager -h
 ```
 
 ## Managing subscriber groups
 
-This section describes briefly the mapping algorithm in shard
+This section describes briefly the mapping algorithm in sgrp
 manager.  It listens on events emitted by the UPSF for service
 gateway user planes (SGUP), traffic steering functions (TSF),
-network connections (NC) and subscriber groups (SHRD).
+network connections (NC) and subscriber groups (SGRP).
 
 For any event received for these items the mapping algorithm is
 executed. Here its pseudo code:
 
-1. Read all SGUP, TSF, NC, SHRD items from UPSF.
-1. If no SGUP instances exist, reset all shard => SGUP mappings and return
-1. For every shard:
+1. Read all SGUP, TSF, NC, SGRP items from UPSF.
+1. If no SGUP instances exist, reset all sgrp => SGUP mappings and return
+1. For every subscriber group:
    - get current SGUP
-   - check for static mapping SHRD => SGUP in policy configuration file
+   - check for static mapping SGRP => SGUP in policy configuration file
 1. if static binding has been defined:
    - if SGUP does not exist:
-     - remove shard to SGUP mapping and update shard
+     - remove subscriber group to SGUP mapping and update subscriber group
    - otherwise:
-     - assign SHRD to SGUP as defined by policy
+     - assign SGRP to SGUP as defined by policy
 1. if dynamic binding is required:
    - get active load for each SGUP based on number of allocated sessions
      and maximum number of supported sessions
-   - Select SGUP with least load and assign to SHRD
+   - Select SGUP with least load and assign to SGRP
    - update number of allocated sessions
-1. Continue until list of shards has been exhausted
+1. Continue until list of subscriber groups has been exhausted
 
 If no service gateway user plane instances can be found for a particular
-subscriber group, shard-manager sets the desired service gateway user plane
+subscriber group, sgrp manager sets the desired service gateway user plane
 to an empty string.
 
 No deletion will take place: such unmapped subscriber groups are
@@ -102,9 +102,9 @@ A configuration file is used for creating pre-defined entities in
 the UPSF. A background task ensures existence of those entities,
 but will not alter them unless the entity does not exist in the
 UPSF yet. Existing entities with or without changes applied by other
-UPSF clients will not be altered by shard manager. For re-creating
+UPSF clients will not be altered by sgrp manager. For re-creating
 the original entity as defined in the policy file, you must remove
-the item from the UPSF first and shard-manager's background task will
+the item from the UPSF first and sgrp manager's background task will
 recreate it after a short period of time.
 
 See below for an example policy configuration or inspect the examples
@@ -130,5 +130,5 @@ upsf:
 ## Limitations
 
 - The set of service groups formed by a union of all service groups
-  required by session contexts assigned to a shard will not be taken
-  into account for making a mapping decision.
+  required by session contexts assigned to a subscriber group will 
+  not be taken into account for making a mapping decision.

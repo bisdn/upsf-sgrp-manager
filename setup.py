@@ -3,7 +3,7 @@
 # Copyright (c) 2023, BISDN GmbH
 # All rights reserved.
 
-""" setup.py for package upsf_shard_manager """
+""" setup.py for package upsf_sgrp_manager """
 
 #
 # pylint: disable=R0201
@@ -61,7 +61,7 @@ class CleanCommand(setuptools.Command):
     def run(self):
         """run"""
         os.system(  # nosec B605
-            "/bin/rm -vrf ./build ./dist ./upsf_shard_manager.egg-info"
+            "/bin/rm -vrf ./build ./dist ./upsf_sgrp_manager.egg-info"
         )
         for filename in walk(pathlib.Path("."), match="*.pyc"):
             print(f"removing file {filename}")
@@ -72,14 +72,14 @@ with open("README.md", "r") as file:
     long_description = file.read()
 
 setuptools.setup(
-    name="upsf_shard_manager",
+    name="upsf_sgrp_manager",
     version="1.0.0",
     author="BISDN GmbH",
     author_email="info@bisdn.de",
-    description="UPSF shard manager",
+    description="UPSF subscriber group manager",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/bisdn/upsf-shard-manager.git",
+    url="https://github.com/bisdn/upsf-sgrp-manager.git",
     packages=setuptools.find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",
@@ -91,7 +91,7 @@ setuptools.setup(
     package_data={},
     entry_points={
         "console_scripts": [
-            "upsf-shard-manager=upsf_shard_manager.app:main",
+            "upsf-sgrp-manager=upsf_sgrp_manager.app:main",
         ]
     },
     zip_safe=False,
