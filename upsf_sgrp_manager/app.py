@@ -5,7 +5,7 @@
 # Copyright (c) 2023, BISDN GmbH
 # All rights reserved.
 
-"""shard manager module"""
+"""subscriber group manager module"""
 
 # pylint: disable=no-member
 # pylint: disable=too-many-locals
@@ -50,8 +50,8 @@ def str2bool(value):
     ]
 
 
-class ShardManager(threading.Thread):
-    """class ShardManager"""
+class SgrpManager(threading.Thread):
+    """class SgrpManager"""
 
     _defaults = {
         # upsf host, default: 127.0.0.1
@@ -60,11 +60,11 @@ class ShardManager(threading.Thread):
         "upsf_port": os.environ.get("UPSF_PORT", 50051),
         # configuration file, default: /etc/upsf/policy.yaml
         "config_file": os.environ.get("CONFIG_FILE", "/etc/upsf/policy.yaml"),
-        # virtual max assigned to shard default
+        # default virtual mac assigned to subscriber group
         "virtual_mac": os.environ.get("VIRTUAL_MAC", "00:00:01:00:00:00"),
         # periodic background thread: time interval
         "registration_interval": os.environ.get("REGISTRATION_INTERVAL", 60),
-        # register shards periodically
+        # register policy defined subscriber groups periodically
         "upsf_auto_register": os.environ.get("UPSF_AUTO_REGISTER", "yes"),
         # loglevel, default: 'info'
         "loglevel": os.environ.get("LOGLEVEL", "info"),
@@ -103,13 +103,13 @@ class ShardManager(threading.Thread):
             upsf_port=self.upsf_port,
         )
 
-        # create shard for each sgup
+        # create subscriber group for each sgup
         self.create_default_items()
         self._upsf_auto_register = None
-        # create predefined shards
+        # create predefined subscriber groups
         if str2bool(self.upsf_auto_register):
             self._upsf_auto_register = threading.Thread(
-                target=ShardManager.upsf_register_task,
+                target=SgrpManager.upsf_register_task,
                 kwargs={
                     "entity": self,
                     "interval": self.registration_interval,
@@ -118,8 +118,8 @@ class ShardManager(threading.Thread):
             )
             self._upsf_auto_register.start()
 
-        # map shards
-        self.map_shards()
+        # map subscriber groups
+        self.map_subscriber_groups()
 
     def __str__(self):
         """return simple string"""
@@ -140,8 +140,8 @@ class ShardManager(threading.Thread):
         """return read-only logger"""
         return self._log
 
-    def shard_dump(self):
-        """dump all shards"""
+    def sgrp_dump(self):
+        """dump all sgrps"""
         # upsf client
         _upsf = UPSF(
             upsf_host=self.upsf_host,
@@ -152,17 +152,17 @@ class ShardManager(threading.Thread):
             self.log.debug(
                 {
                     "entity": str(self),
-                    "event": "shard_dump",
+                    "event": "sgrp_dump",
                     "derived_state": DerivedState(
                         shard.metadata.derived_state
                     ).name.lower(),
-                    "shard.name": shard.name,
-                    "shard.desired_up": shard.spec.desired_state.service_gateway_user_plane,
-                    "shard.current_up": shard.status.current_state.service_gateway_user_plane,
+                    "sgrp.name": shard.name,
+                    "sgrp.desired_up": shard.spec.desired_state.service_gateway_user_plane,
+                    "sgrp.current_up": shard.status.current_state.service_gateway_user_plane,
                 }
             )
 
-    def map_shards(self):
+    def map_subscriber_groups(self):
         """assign a user plane to each shard without desired
         or invalid service gateway user plane"""
 
@@ -173,24 +173,25 @@ class ShardManager(threading.Thread):
             # get all service gateway user planes
             sgups = self._upsf.list_service_gateway_user_planes()
 
-            # get all shards
-            shards = self._upsf.list_shards()
+            # get all sgrps
+            sgrps = self._upsf.list_shards()
 
-            # no user planes at all, remove all shards
+            # no user planes at all, remove all sgrps
             if len(sgups) == 0:
                 self.log.warning(
                     {
                         "entity": str(self),
-                        "event": "map_shards: no user planes available, reset all shards",
+                        "event": "map_subscriber_groups: no user planes available, reset all sgrps",
                     }
                 )
 
-                # reset all shards, i.e. remove network connections
-                for shard in shards:
+                # reset all sgrps, i.e. remove network connections
+                for shard in sgrps:
                     self.log.warning(
                         {
                             "entity": str(self),
-                            "event": "map_shards: no user planes available, reset all shards",
+                            "event": "map_subscriber_groups: "
+                            "no user planes available, reset all sgrps",
                             "shard": shard.name,
                             "desired_up": shard.spec.desired_state.service_gateway_user_plane,
                             "traceback": traceback.format_stack(),
@@ -226,8 +227,8 @@ class ShardManager(threading.Thread):
             # list of up names
             up_names = [up.name for up in sgups]
 
-            # map shards to service gateway user planes
-            for shard in shards:
+            # map sgrps to service gateway user planes
+            for shard in sgrps:
                 try:
                     # fingerprint for (old) existing desired state
                     finger_active = (
@@ -243,7 +244,7 @@ class ShardManager(threading.Thread):
                     up_name = shard.spec.desired_state.service_gateway_user_plane
 
                     # static pinning for shard?
-                    static_up_name = self.get_static_shard_to_sgup_mapping(shard.name)
+                    static_up_name = self.get_static_sgrp_to_sgup_mapping(shard.name)
 
                     # need up mapping
                     if (static_up_name is not None and (up_name != static_up_name)) or (
@@ -255,7 +256,8 @@ class ShardManager(threading.Thread):
                                 self.log.warning(
                                     {
                                         "entity": str(self),
-                                        "event": "map_shards: shard has static sgup mapping, "
+                                        "event": "map_subscriber_groups: "
+                                        "shard has static sgup mapping, "
                                         "but sgup is not available, ignoring",
                                         "shard": shard.name,
                                         "sgup": static_up_name,
@@ -265,7 +267,7 @@ class ShardManager(threading.Thread):
                             self.log.debug(
                                 {
                                     "entity": str(self),
-                                    "event": "map_shards: shard has static mapping",
+                                    "event": "map_subscriber_groups: shard has static mapping",
                                     "shard": shard.name,
                                     "sgup.selected": static_up_name,
                                 }
@@ -288,7 +290,8 @@ class ShardManager(threading.Thread):
                                 self.log.warning(
                                     {
                                         "entity": str(self),
-                                        "event": "map_shards: set of sgup candidates is empty",
+                                        "event": "map_subscriber_groups: "
+                                        "set of sgup candidates is empty",
                                         "shard": shard.name,
                                         "sgup_load": sgup_load,
                                     }
@@ -301,7 +304,7 @@ class ShardManager(threading.Thread):
                             self.log.debug(
                                 {
                                     "entity": str(self),
-                                    "event": "map_shards: selected new user plane",
+                                    "event": "map_subscriber_groups: selected new user plane",
                                     "shard": shard.name,
                                     "sgup_load": sgup_load,
                                     "sgup.selected": up_name,
@@ -466,7 +469,7 @@ class ShardManager(threading.Thread):
                         self.log.debug(
                             {
                                 "entity": str(self),
-                                "event": "map_shards: updating shard",
+                                "event": "map_subscriber_groups: updating shard",
                                 "shard.name": shard.name,
                                 "sgup.name": service_gateway_user_plane.name,
                                 "desired_nc": desired_network_connection,
@@ -483,7 +486,7 @@ class ShardManager(threading.Thread):
                         self.log.debug(
                             {
                                 "entity": str(self),
-                                "event": "map_shards: shard updated",
+                                "event": "map_subscriber_groups: shard updated",
                                 "shard": _shard,
                             }
                         )
@@ -492,7 +495,7 @@ class ShardManager(threading.Thread):
                         self.log.debug(
                             {
                                 "entity": str(self),
-                                "event": "map_shards: no shard update needed",
+                                "event": "map_subscriber_groups: no shard update needed",
                                 "shard.name": shard.name,
                                 "sgup.name": service_gateway_user_plane.name,
                                 "desired_nc": desired_network_connection,
@@ -510,25 +513,25 @@ class ShardManager(threading.Thread):
                     self.log.error(
                         {
                             "entity": str(self),
-                            "event": "map_shards: shard update failed",
+                            "event": "map_subscriber_groups: shard update failed",
                             "error": error,
                             "traceback": traceback.format_exc(),
                         }
                     )
 
-            self.shard_dump()
+            self.sgrp_dump()
 
         except UpsfError as error:
             self.log.error(
                 {
                     "entity": str(self),
-                    "event": "map_shards, error occurred",
+                    "event": "map_subscriber_groups, error occurred",
                     "error": error,
                     "traceback": traceback.format_exc(),
                 }
             )
 
-    def get_static_shard_to_sgup_mapping(self, shard_name):
+    def get_static_sgrp_to_sgup_mapping(self, shard_name):
         """return sgup name if a static mapping was defined in config file, None otherwise"""
         # sanity check: configuration file
         if not pathlib.Path(self.config_file).exists():
@@ -550,7 +553,7 @@ class ShardManager(threading.Thread):
                     self.log.debug(
                         {
                             "entity": str(self),
-                            "event": "get_static_shard_to_sgup_mapping: "
+                            "event": "get_static_sgrp_to_sgup_mapping: "
                             "parameter not found, ignoring entry",
                             "param": param,
                             "entry": entry,
@@ -578,7 +581,7 @@ class ShardManager(threading.Thread):
                 kwargs["entity"].create_default_items()
 
     def create_default_items(self):
-        """create default shards if non-existing"""
+        """create default subscriber groups if non-existing"""
 
         # sanity check: configuration file
         if not pathlib.Path(self.config_file).exists():
@@ -589,13 +592,13 @@ class ShardManager(threading.Thread):
             self.log.warning(
                 {
                     "entity": str(self),
-                    "event": "create_default_shards: no sgups available, aborting.",
+                    "event": "create_default_sgrps: no sgups available, aborting.",
                 }
             )
             return
 
-        # get shards from UPSF
-        shards = {shard.name: shard for shard in self._upsf.list_shards()}
+        # get sgrps from UPSF
+        sgrps = {shard.name: shard for shard in self._upsf.list_shards()}
 
         # get configuration from file
         config = {}
@@ -616,15 +619,15 @@ class ShardManager(threading.Thread):
                     self.log.warning(
                         {
                             "entity": str(self),
-                            "event": "create_default_shards: parameter not found, ignoring entry",
+                            "event": "create_default_sgrps: parameter not found, ignoring entry",
                             "param": param,
                             "entry": entry,
                         }
                     )
                     break
             else:
-                # ignore existing shards
-                if entry["name"] in shards:
+                # ignore existing sgrps
+                if entry["name"] in sgrps:
                     continue
 
                 # shard parameters
@@ -655,7 +658,7 @@ class ShardManager(threading.Thread):
                         self.log.warning(
                             {
                                 "entity": str(self),
-                                "event": "create_default_shards: invalid prefix, ignoring",
+                                "event": "create_default_sgrps: invalid prefix, ignoring",
                                 "prefix": prefix,
                                 "entry": entry,
                                 "error": error,
@@ -759,26 +762,26 @@ class ShardManager(threading.Thread):
                                 derived_state = (
                                     item.service_gateway_user_plane.metadata.derived_state
                                 )
-                                self.map_shards()
+                                self.map_subscriber_groups()
 
                             # traffic steering functions
                             elif item.traffic_steering_function.name not in ("",):
                                 derived_state = (
                                     item.traffic_steering_function.metadata.derived_state
                                 )
-                                self.map_shards()
+                                self.map_subscriber_groups()
 
                             # network connections
                             elif item.network_connection.name not in ("",):
                                 derived_state = (
                                     item.network_connection.metadata.derived_state
                                 )
-                                self.map_shards()
+                                self.map_subscriber_groups()
 
                             # shard
                             elif item.shard.name not in ("",):
                                 derived_state = item.shard.metadata.derived_state
-                                self.map_shards()
+                                self.map_subscriber_groups()
 
                             # check policy file for any required changes
                             if derived_state in (
@@ -838,7 +841,7 @@ def parse_arguments(defaults, loglevels):
 
     parser.add_argument(
         "--virtual-mac",
-        help=f'default shard virtual mac (default: {defaults["virtual_mac"]})',
+        help=f'default subscriber group virtual mac (default: {defaults["virtual_mac"]})',
         dest="virtual_mac",
         action="store",
         default=defaults["virtual_mac"],
@@ -858,7 +861,7 @@ def parse_arguments(defaults, loglevels):
     parser.add_argument(
         "--upsf-auto-register",
         "-a",
-        help="enable registration of pre-defined shards "
+        help="enable registration of pre-defined subscriber groups "
         f'(default: {defaults["upsf_auto_register"]})',
         dest="upsf_auto_register",
         action="store",
@@ -893,7 +896,7 @@ def main():
         "virtual_mac": os.environ.get("VIRTUAL_MAC", "00:00:01:00:00:00"),
         # periodic background thread: time interval
         "registration_interval": os.environ.get("REGISTRATION_INTERVAL", 60),
-        # register shards periodically
+        # register sgrps periodically
         "upsf_auto_register": os.environ.get("UPSF_AUTO_REGISTER", "yes"),
         # loglevel, default: 'info'
         "loglevel": os.environ.get("LOGLEVEL", "info"),
@@ -935,9 +938,9 @@ def main():
     # log to debug channel
     log.debug(kwargs)
 
-    # create shard manager
-    shardmgr = ShardManager(**kwargs)
-    shardmgr.start()
+    # create subscriber group manager
+    sgrpmgr = SgrpManager(**kwargs)
+    sgrpmgr.start()
     while True:
         try:
             time.sleep(1)
